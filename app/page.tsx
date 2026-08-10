@@ -64,7 +64,7 @@ async function getTranscriber(language: Language, onProgress: (message: string, 
       transformers.env.useBrowserCache = true;
       const languageName = language === "spanish" ? "Spanish" : "English";
 
-      return transformers.pipeline("automatic-speech-recognition", "Xenova/whisper-small", {
+      return transformers.pipeline("automatic-speech-recognition", "Xenova/whisper-base", {
         device: "wasm",
         dtype: "q8",
         progress_callback: (event: { status?: string; progress?: number; file?: string }) => {
