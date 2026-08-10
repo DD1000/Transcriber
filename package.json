@@ -14,7 +14,6 @@
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
-    "@ffmpeg/core": "^0.12.10",
     "@ffmpeg/ffmpeg": "^0.12.15",
     "drizzle-orm": "0.45.2",
     "react": "19.2.6",

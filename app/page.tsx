@@ -15,6 +15,7 @@ type TranscriptionResult = {
 type AppState = "idle" | "ready" | "loading" | "transcribing" | "done" | "error";
 
 const MODEL_URL = "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/+esm";
+const FFMPEG_CORE_URL = "https://unpkg.com/@ffmpeg/core@0.12.10/dist/esm";
 let transcriberPromise: Promise<(audio: Float32Array, options: object) => Promise<TranscriptionResult>> | null = null;
 let converterPromise: Promise<{
   writeFile: (name: string, data: Uint8Array) => Promise<void>;
@@ -89,10 +90,9 @@ async function getConverter(onProgress: (message: string, progress?: number) => 
         onProgress("Converting AMR audio on your device", Math.min(100, Math.round((progress ?? 0) * 100)));
       });
       onProgress("Preparing a local AMR converter…");
-      const assetRoot = new URL("/ffmpeg/", globalThis.location.href);
       await converter.load({
-        coreURL: new URL("ffmpeg-core.js", assetRoot).href,
-        wasmURL: new URL("ffmpeg-core.wasm", assetRoot).href,
+        coreURL: `${FFMPEG_CORE_URL}/ffmpeg-core.js`,
+        wasmURL: `${FFMPEG_CORE_URL}/ffmpeg-core.wasm`,
       });
       return converter;
     })();
