@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 
 const templateRoot = new URL("../", import.meta.url);
@@ -43,7 +43,12 @@ test("removes the disposable starter preview", async () => {
   assert.match(page, /audio\/*/);
   assert.match(page, /convertToWav/);
   assert.match(page, /AMR/);
-  assert.match(page, /unpkg\.com/);
+  assert.match(page, /\/ffmpeg\//);
+  assert.doesNotMatch(page, /unpkg\.com/);
   assert.match(layout, /EchoScribe/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
+  await Promise.all([
+    access(new URL("../public/ffmpeg/ffmpeg-core.js", import.meta.url)),
+    access(new URL("../public/ffmpeg/ffmpeg-core.wasm", import.meta.url)),
+  ]);
 });
