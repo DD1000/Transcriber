@@ -34,13 +34,15 @@ test("removes the disposable starter preview", async () => {
   const [page, layout, packageJson] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../package.json", templateRoot), "utf8"),
+    readFile(new URL("package.json", templateRoot), "utf8"),
   ]);
 
   assert.match(page, /\"use client\"/);
   assert.match(page, /automatic-speech-recognition/);
   assert.match(page, /Xenova\/whisper-tiny\.en/);
   assert.match(page, /audio\/*/);
+  assert.match(page, /convertToWav/);
+  assert.match(page, /AMR/);
   assert.match(layout, /EchoScribe/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
 });

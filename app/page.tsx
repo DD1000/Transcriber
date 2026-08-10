@@ -15,7 +15,15 @@ type TranscriptionResult = {
 type AppState = "idle" | "ready" | "loading" | "transcribing" | "done" | "error";
 
 const MODEL_URL = "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/+esm";
+const FFMPEG_CORE_URL = "https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd";
 let transcriberPromise: Promise<(audio: Float32Array, options: object) => Promise<TranscriptionResult>> | null = null;
+let converterPromise: Promise<{
+  writeFile: (name: string, data: Uint8Array) => Promise<void>;
+  exec: (args: string[]) => Promise<number>;
+  readFile: (name: string) => Promise<Uint8Array>;
+  deleteFile: (name: string) => Promise<void>;
+  on: (event: string, callback: (event: { progress?: number }) => void) => void;
+}> | null = null;
 
 function formatBytes(bytes: number) {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -28,7 +36,7 @@ function formatTime(seconds: number) {
   return `${minutes}:${remainder}`;
 }
 
-async function prepareAudio(file: File) {
+async function prepareAudio(file: Blob) {
   const context = new AudioContext();
   const decoded = await context.decodeAudioData(await file.arrayBuffer());
 
@@ -69,6 +77,49 @@ async function getTranscriber(onProgress: (message: string, progress?: number) =
   return transcriberPromise;
 }
 
+function needsLocalConversion(file: File) {
+  return /\.(amr|3gp|3gpp)$/i.test(file.name) || /audio\/(amr|3gpp)/i.test(file.type);
+}
+
+async function getConverter(onProgress: (message: string, progress?: number) => void) {
+  if (!converterPromise) {
+    converterPromise = (async () => {
+      const [{ FFmpeg }, { toBlobURL }] = await Promise.all([
+        import("@ffmpeg/ffmpeg"),
+        import("@ffmpeg/util"),
+      ]);
+      const converter = new FFmpeg();
+      converter.on("progress", ({ progress }) => {
+        onProgress("Converting AMR audio on your device", Math.min(100, Math.round((progress ?? 0) * 100)));
+      });
+      onProgress("Preparing a local AMR converter…");
+      await converter.load({
+        coreURL: await toBlobURL(`${FFMPEG_CORE_URL}/ffmpeg-core.js`, "text/javascript"),
+        wasmURL: await toBlobURL(`${FFMPEG_CORE_URL}/ffmpeg-core.wasm`, "application/wasm"),
+      });
+      return converter;
+    })();
+  }
+
+  return converterPromise;
+}
+
+async function convertToWav(file: File, onProgress: (message: string, progress?: number) => void) {
+  const [{ fetchFile }, converter] = await Promise.all([
+    import("@ffmpeg/util"),
+    getConverter(onProgress),
+  ]);
+  const extension = file.name.split(".").pop()?.toLowerCase() || "amr";
+  const inputName = `source.${extension}`;
+  const outputName = "converted.wav";
+  await converter.writeFile(inputName, await fetchFile(file));
+  const exitCode = await converter.exec(["-i", inputName, "-ac", "1", "-ar", "16000", outputName]);
+  if (exitCode !== 0) throw new Error("The AMR conversion could not complete.");
+  const wav = await converter.readFile(outputName);
+  await Promise.all([converter.deleteFile(inputName), converter.deleteFile(outputName)]);
+  return new Blob([wav], { type: "audio/wav" });
+}
+
 export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -84,9 +135,9 @@ export default function Home() {
 
   const chooseFile = (nextFile: File | undefined) => {
     if (!nextFile) return;
-    if (!nextFile.type.startsWith("audio/") && !/\.(mp3|wav|m4a|aac|ogg|flac|webm)$/i.test(nextFile.name)) {
+    if (!nextFile.type.startsWith("audio/") && !/\.(mp3|wav|m4a|aac|ogg|flac|webm|amr|3gp|3gpp)$/i.test(nextFile.name)) {
       setState("error");
-      setStatus("Please choose an audio file such as MP3, WAV, M4A, OGG, FLAC, or WebM.");
+      setStatus("Please choose an audio file such as MP3, WAV, M4A, AMR, OGG, FLAC, or WebM.");
       return;
     }
 
@@ -105,7 +156,15 @@ export default function Home() {
       setState("loading");
       setProgress(null);
       setStatus("Reading your audio file…");
-      const samples = await prepareAudio(file);
+      const audioToRead = needsLocalConversion(file)
+        ? await convertToWav(file, (message, percent) => {
+            setStatus(message);
+            setProgress(typeof percent === "number" ? percent : null);
+          })
+        : file;
+      setStatus("Reading your audio file…");
+      setProgress(null);
+      const samples = await prepareAudio(audioToRead);
       const model = await getTranscriber((message, percent) => {
         setStatus(message);
         setProgress(typeof percent === "number" ? percent : null);
@@ -122,7 +181,7 @@ export default function Home() {
       console.error(error);
       setState("error");
       setProgress(null);
-      setStatus("That file could not be transcribed here. Try a smaller MP3 or WAV file, then try again.");
+      setStatus("That file could not be transcribed here. Try a smaller MP3, WAV, or AMR file, then try again.");
     }
   };
 
@@ -185,14 +244,14 @@ export default function Home() {
           onDragLeave={() => setIsDragging(false)}
           onDrop={(event) => { event.preventDefault(); setIsDragging(false); chooseFile(event.dataTransfer.files[0]); }}
         >
-          <input ref={inputRef} className="visually-hidden" type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac,.webm" onChange={(event) => chooseFile(event.target.files?.[0])} />
+          <input ref={inputRef} className="visually-hidden" type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac,.webm,.amr,.3gp,.3gpp" onChange={(event) => chooseFile(event.target.files?.[0])} />
           <div className="sound-orb" aria-hidden="true"><span /><span /><span /><span /><span /></div>
           {file ? (
             <div className="file-details"><p className="file-ready">FILE READY</p><strong>{file.name}</strong><span>{formatBytes(file.size)} · Click or drop to replace</span></div>
           ) : (
             <div className="file-details"><strong>Drop your audio here</strong><span>or click to browse your device</span></div>
           )}
-          <span className="formats">MP3 · WAV · M4A · AAC · OGG · FLAC · WEBM</span>
+          <span className="formats">MP3 · WAV · M4A · AMR · AAC · OGG · FLAC · WEBM</span>
         </div>
 
         {audioUrl && <div className="audio-preview"><span className="preview-label">QUICK LISTEN</span><audio controls src={audioUrl}>Your browser does not support audio preview.</audio></div>}
