@@ -17,12 +17,15 @@ type Language = "spanish" | "english";
 
 const MODEL_URL = "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/+esm";
 const FFMPEG_CORE_URL = "https://unpkg.com/@ffmpeg/core@0.12.10/dist/esm";
+const SAMPLE_RATE = 16000;
+const SEGMENT_SECONDS = 28;
 let transcriberPromise: Promise<(audio: Float32Array, options: object) => Promise<TranscriptionResult>> | null = null;
 let converterPromise: Promise<{
   writeFile: (name: string, data: Uint8Array) => Promise<void>;
   exec: (args: string[]) => Promise<number>;
   readFile: (name: string) => Promise<Uint8Array>;
   deleteFile: (name: string) => Promise<void>;
+  terminate: () => void;
   on: (event: string, callback: (event: { progress?: number }) => void) => void;
 }> | null = null;
 
@@ -41,12 +44,12 @@ async function prepareAudio(file: Blob) {
   const context = new AudioContext();
   const decoded = await context.decodeAudioData(await file.arrayBuffer());
 
-  if (decoded.sampleRate === 16000 && decoded.numberOfChannels === 1) {
+  if (decoded.sampleRate === SAMPLE_RATE && decoded.numberOfChannels === 1) {
     await context.close();
     return decoded.getChannelData(0).slice();
   }
 
-  const offline = new OfflineAudioContext(1, Math.ceil(decoded.duration * 16000), 16000);
+  const offline = new OfflineAudioContext(1, Math.ceil(decoded.duration * SAMPLE_RATE), SAMPLE_RATE);
   const source = offline.createBufferSource();
   source.buffer = decoded;
   source.connect(offline.destination);
@@ -108,12 +111,54 @@ async function convertToWav(file: File, onProgress: (message: string, progress?:
   const extension = file.name.split(".").pop()?.toLowerCase() || "amr";
   const inputName = `source.${extension}`;
   const outputName = "converted.wav";
-  await converter.writeFile(inputName, new Uint8Array(await file.arrayBuffer()));
-  const exitCode = await converter.exec(["-i", inputName, "-ac", "1", "-ar", "16000", outputName]);
-  if (exitCode !== 0) throw new Error("The AMR conversion could not complete.");
-  const wav = await converter.readFile(outputName);
-  await Promise.all([converter.deleteFile(inputName), converter.deleteFile(outputName)]);
-  return new Blob([wav], { type: "audio/wav" });
+  try {
+    await converter.writeFile(inputName, new Uint8Array(await file.arrayBuffer()));
+    const exitCode = await converter.exec(["-i", inputName, "-ac", "1", "-ar", `${SAMPLE_RATE}`, outputName]);
+    if (exitCode !== 0) throw new Error("The AMR conversion could not complete.");
+    const wav = await converter.readFile(outputName);
+    return new Blob([wav], { type: "audio/wav" });
+  } finally {
+    converter.terminate();
+    converterPromise = null;
+  }
+}
+
+async function transcribeInSegments(
+  model: (audio: Float32Array, options: object) => Promise<TranscriptionResult>,
+  samples: Float32Array,
+  language: Language,
+  onProgress: (message: string, progress: number) => void,
+) {
+  const segmentSize = SEGMENT_SECONDS * SAMPLE_RATE;
+  const totalSegments = Math.max(1, Math.ceil(samples.length / segmentSize));
+  const textParts: string[] = [];
+  const chunks: TranscriptChunk[] = [];
+
+  for (let index = 0; index < totalSegments; index += 1) {
+    const start = index * segmentSize;
+    const segment = samples.subarray(start, Math.min(start + segmentSize, samples.length));
+    const result = await model(segment, { return_timestamps: true, language, task: "transcribe" });
+    const text = result.text?.trim();
+    if (text) textParts.push(text);
+
+    const offset = start / SAMPLE_RATE;
+    for (const chunk of result.chunks ?? []) {
+      const [chunkStart, chunkEnd] = chunk.timestamp ?? [0, null];
+      chunks.push({
+        text: chunk.text,
+        timestamp: [chunkStart + offset, chunkEnd === null ? null : chunkEnd + offset],
+      });
+    }
+
+    const completed = index + 1;
+    onProgress(
+      `Transcribing ${language === "spanish" ? "Spanish" : "English"} locally — part ${completed} of ${totalSegments}`,
+      Math.round((completed / totalSegments) * 100),
+    );
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+  }
+
+  return { text: textParts.join(" "), chunks: chunks.length ? chunks : undefined };
 }
 
 export default function Home() {
@@ -168,14 +213,11 @@ export default function Home() {
       });
 
       setState("transcribing");
-      setProgress(null);
+      setProgress(0);
       setStatus(`Transcribing ${language === "spanish" ? "Spanish" : "English"} locally in your browser…`);
-      const result = await model(samples, {
-        chunk_length_s: 30,
-        stride_length_s: 5,
-        return_timestamps: true,
-        language,
-        task: "transcribe",
+      const result = await transcribeInSegments(model, samples, language, (message, percent) => {
+        setStatus(message);
+        setProgress(percent);
       });
       setTranscript(result);
       setState("done");
@@ -184,7 +226,7 @@ export default function Home() {
       console.error(error);
       setState("error");
       setProgress(null);
-      setStatus("That file could not be transcribed here. Try a smaller MP3, WAV, or AMR file, then try again.");
+      setStatus("That recording could not be processed in this browser. Try a shorter file or open EchoScribe in an external browser.");
     }
   };
 

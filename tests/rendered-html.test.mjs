@@ -44,6 +44,9 @@ test("removes the disposable starter preview", async () => {
   assert.match(page, /language,/);
   assert.match(page, /audio\/*/);
   assert.match(page, /convertToWav/);
+  assert.match(page, /transcribeInSegments/);
+  assert.match(page, /SEGMENT_SECONDS/);
+  assert.match(page, /converter\.terminate/);
   assert.match(page, /AMR/);
   assert.match(page, /unpkg\.com/);
   assert.match(layout, /EchoScribe/);
