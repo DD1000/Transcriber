@@ -39,7 +39,9 @@ test("removes the disposable starter preview", async () => {
 
   assert.match(page, /\"use client\"/);
   assert.match(page, /automatic-speech-recognition/);
-  assert.match(page, /Xenova\/whisper-tiny\.en/);
+  assert.match(page, /Xenova\/whisper-tiny/);
+  assert.match(page, /value="spanish"/);
+  assert.match(page, /language,/);
   assert.match(page, /audio\/*/);
   assert.match(page, /convertToWav/);
   assert.match(page, /AMR/);

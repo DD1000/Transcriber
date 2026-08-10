@@ -13,6 +13,7 @@ type TranscriptionResult = {
 };
 
 type AppState = "idle" | "ready" | "loading" | "transcribing" | "done" | "error";
+type Language = "spanish" | "english";
 
 const MODEL_URL = "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/+esm";
 const FFMPEG_CORE_URL = "https://unpkg.com/@ffmpeg/core@0.12.10/dist/esm";
@@ -55,19 +56,20 @@ async function prepareAudio(file: Blob) {
   return rendered.getChannelData(0).slice();
 }
 
-async function getTranscriber(onProgress: (message: string, progress?: number) => void) {
+async function getTranscriber(language: Language, onProgress: (message: string, progress?: number) => void) {
   if (!transcriberPromise) {
     transcriberPromise = (async () => {
       const transformers = await import(/* @vite-ignore */ MODEL_URL);
       transformers.env.allowLocalModels = false;
       transformers.env.useBrowserCache = true;
+      const languageName = language === "spanish" ? "Spanish" : "English";
 
-      return transformers.pipeline("automatic-speech-recognition", "Xenova/whisper-tiny.en", {
+      return transformers.pipeline("automatic-speech-recognition", "Xenova/whisper-tiny", {
         device: "wasm",
         dtype: "q8",
         progress_callback: (event: { status?: string; progress?: number; file?: string }) => {
           const fileName = event.file ? ` ${event.file.replace(/.*\//, "")}` : "";
-          const label = event.status === "progress" ? "Downloading voice model" : "Preparing voice model";
+          const label = event.status === "progress" ? `Downloading ${languageName} voice model` : "Preparing multilingual voice model";
           onProgress(`${label}${fileName}`, event.progress);
         },
       });
@@ -124,6 +126,7 @@ export default function Home() {
   const [progress, setProgress] = useState<number | null>(null);
   const [transcript, setTranscript] = useState<TranscriptionResult | null>(null);
   const [copied, setCopied] = useState(false);
+  const [language, setLanguage] = useState<Language>("spanish");
 
   useEffect(() => () => { if (audioUrl) URL.revokeObjectURL(audioUrl); }, [audioUrl]);
 
@@ -159,15 +162,21 @@ export default function Home() {
       setStatus("Reading your audio file…");
       setProgress(null);
       const samples = await prepareAudio(audioToRead);
-      const model = await getTranscriber((message, percent) => {
+      const model = await getTranscriber(language, (message, percent) => {
         setStatus(message);
         setProgress(typeof percent === "number" ? percent : null);
       });
 
       setState("transcribing");
       setProgress(null);
-      setStatus("Transcribing locally in your browser…");
-      const result = await model(samples, { chunk_length_s: 30, stride_length_s: 5, return_timestamps: true });
+      setStatus(`Transcribing ${language === "spanish" ? "Spanish" : "English"} locally in your browser…`);
+      const result = await model(samples, {
+        chunk_length_s: 30,
+        stride_length_s: 5,
+        return_timestamps: true,
+        language,
+        task: "transcribe",
+      });
       setTranscript(result);
       setState("done");
       setStatus("Transcript complete. Nothing was uploaded.");
@@ -223,7 +232,13 @@ export default function Home() {
       <section className="workspace" aria-labelledby="workspace-title">
         <div className="workspace-heading">
           <div><p className="section-label">YOUR RECORDING</p><h2 id="workspace-title">Make a clean transcript</h2></div>
-          <span className="language-chip">ENGLISH · TINY WHISPER</span>
+          <label className="language-picker">
+            <span>TRANSCRIBE IN</span>
+            <select value={language} onChange={(event) => setLanguage(event.target.value as Language)} disabled={isWorking} aria-label="Transcription language">
+              <option value="spanish">SPANISH</option>
+              <option value="english">ENGLISH</option>
+            </select>
+          </label>
         </div>
 
         <div
@@ -276,7 +291,7 @@ export default function Home() {
 
       <section className="promise-grid" aria-label="How EchoScribe works">
         <article><span>01</span><h3>Choose a file</h3><p>Use a common audio format from your phone, recorder, or computer.</p></article>
-        <article><span>02</span><h3>Process locally</h3><p>A small speech model works right in this browser—no sign-up needed.</p></article>
+        <article><span>02</span><h3>Process locally</h3><p>A multilingual speech model works right in this browser—no sign-up needed.</p></article>
         <article><span>03</span><h3>Take the text</h3><p>Copy your transcript or download a tidy text file when you’re done.</p></article>
       </section>
       <footer>EchoScribe is free to use. Your audio remains on your device.</footer>
