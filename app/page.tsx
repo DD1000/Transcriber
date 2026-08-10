@@ -15,7 +15,6 @@ type TranscriptionResult = {
 type AppState = "idle" | "ready" | "loading" | "transcribing" | "done" | "error";
 
 const MODEL_URL = "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/+esm";
-const FFMPEG_CORE_URL = "https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd";
 let transcriberPromise: Promise<(audio: Float32Array, options: object) => Promise<TranscriptionResult>> | null = null;
 let converterPromise: Promise<{
   writeFile: (name: string, data: Uint8Array) => Promise<void>;
@@ -84,18 +83,16 @@ function needsLocalConversion(file: File) {
 async function getConverter(onProgress: (message: string, progress?: number) => void) {
   if (!converterPromise) {
     converterPromise = (async () => {
-      const [{ FFmpeg }, { toBlobURL }] = await Promise.all([
-        import("@ffmpeg/ffmpeg"),
-        import("@ffmpeg/util"),
-      ]);
+      const { FFmpeg } = await import("@ffmpeg/ffmpeg");
       const converter = new FFmpeg();
       converter.on("progress", ({ progress }) => {
         onProgress("Converting AMR audio on your device", Math.min(100, Math.round((progress ?? 0) * 100)));
       });
       onProgress("Preparing a local AMR converter…");
+      const assetRoot = new URL("/ffmpeg/", window.location.href);
       await converter.load({
-        coreURL: await toBlobURL(`${FFMPEG_CORE_URL}/ffmpeg-core.js`, "text/javascript"),
-        wasmURL: await toBlobURL(`${FFMPEG_CORE_URL}/ffmpeg-core.wasm`, "application/wasm"),
+        coreURL: new URL("ffmpeg-core.js", assetRoot).href,
+        wasmURL: new URL("ffmpeg-core.wasm", assetRoot).href,
       });
       return converter;
     })();
@@ -105,14 +102,11 @@ async function getConverter(onProgress: (message: string, progress?: number) => 
 }
 
 async function convertToWav(file: File, onProgress: (message: string, progress?: number) => void) {
-  const [{ fetchFile }, converter] = await Promise.all([
-    import("@ffmpeg/util"),
-    getConverter(onProgress),
-  ]);
+  const converter = await getConverter(onProgress);
   const extension = file.name.split(".").pop()?.toLowerCase() || "amr";
   const inputName = `source.${extension}`;
   const outputName = "converted.wav";
-  await converter.writeFile(inputName, await fetchFile(file));
+  await converter.writeFile(inputName, new Uint8Array(await file.arrayBuffer()));
   const exitCode = await converter.exec(["-i", inputName, "-ac", "1", "-ar", "16000", outputName]);
   if (exitCode !== 0) throw new Error("The AMR conversion could not complete.");
   const wav = await converter.readFile(outputName);
