@@ -38,3 +38,7 @@ yarn-error.log*
 /.wrangler/
 /outputs/
 /work/
+/macos/EchoRename/.build/
+/macos/EchoRename/.swiftpm/configuration/
+/macos/EchoRename/.swiftpm/security/
+/macos/EchoRename/.swiftpm/xcode/

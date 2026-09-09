@@ -1,8 +1,22 @@
-# vinext-starter
+# EchoScribe
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+EchoScribe has two private, free, local-first tools:
+
+- `app/`: the hosted browser app for transcribing an individual recording.
+- `macos/EchoRename/`: a native macOS app that scans a chosen video folder, transcribes each video locally, suggests a descriptive filename, and applies only the renames you approve. It records the last rename batch for Undo.
+
+## EchoRename for macOS
+
+Requirements: an Apple Silicon Mac running macOS 14 or newer, and Xcode 16 or newer.
+
+1. Open `macos/EchoRename/Package.swift` in Xcode.
+2. Select the **EchoRename** scheme and press Run.
+3. Choose a video folder, scan it, then select **Analyze**.
+4. Review or edit the suggested filenames and select **Rename**. Use **Undo last rename** to restore the most recent batch.
+
+The first run downloads the free, local Whisper Large v3 Turbo transcription model. Video and audio data remain on the Mac; long recordings use bounded-memory incremental audio loading.
+
+The app uses the open-source Argmax OSS/WhisperKit SDK for local Apple Silicon transcription.
 
 ## Prerequisites
 
