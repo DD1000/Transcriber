@@ -91,6 +91,7 @@ final class VideoRenameViewModel: ObservableObject {
             for index in jobs.indices {
                 if let renamedPath = byOriginalPath[jobs[index].url.path] {
                     jobs[index].url = URL(fileURLWithPath: renamedPath)
+                    jobs[index].proposedName = URL(fileURLWithPath: renamedPath).lastPathComponent
                     jobs[index].state = .renamed
                 }
             }
