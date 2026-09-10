@@ -36,3 +36,21 @@ swiftc -parse-as-library Sources/EchoRename/VideoFrameSampler.swift Sources/Echo
 ```
 
 The native smoke harness creates its own tiny test videos. It never renames user files.
+
+## Automated GitHub checks
+
+The **ClipName macOS checks** workflow runs on relevant pushes to `main`, pull requests,
+and manually from [GitHub Actions](https://github.com/DD1000/Transcriber/actions/workflows/clipname-macos.yml)
+using **Run workflow**. Each run builds the app and runs the Swift filename tests,
+Python scene-output validation tests, and generated-video smoke checks on Apple Silicon
+runners for macOS 14, 15, and 26. Each version reports its own pass or failure; one
+failure does not cancel the other versions. Dependencies use `Package.resolved`.
+
+These checks do not download AI models or use personal videos. They do not establish
+transcription or scene-recognition accuracy, UI/folder-permission behavior, or
+rename/Undo safety. Those need separate end-to-end tests before release. No app is
+installed on your Mac or deployed to the website by this workflow.
+
+GitHub has scheduled its macOS 14 runners for retirement on November 2, 2026.
+If that runner becomes unavailable, Sonoma testing will need another test machine;
+an unavailable runner is not evidence that ClipName itself is incompatible.

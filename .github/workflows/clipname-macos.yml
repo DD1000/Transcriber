@@ -1,0 +1,101 @@
+name: ClipName macOS checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'macos/EchoRename/**'
+      - '.github/workflows/clipname-macos.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'macos/EchoRename/**'
+      - '.github/workflows/clipname-macos.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clipname-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compatibility:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # GitHub plans to retire macos-14 on 2026-11-02.
+          # Keep infrastructure availability separate from app compatibility.
+          - os: macos-14
+            name: macOS 14 Sonoma
+            xcode: '16.2'
+          - os: macos-15
+            name: macOS 15 Sequoia
+            xcode: '16.4'
+          - os: macos-26
+            name: macOS 26 Tahoe
+            xcode: '26.6'
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_${{ matrix.xcode }}.app/Contents/Developer
+      PYTHONDONTWRITEBYTECODE: '1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+    defaults:
+      run:
+        shell: bash
+        working-directory: macos/EchoRename
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+          architecture: arm64
+
+      - name: Record test environment
+        run: |
+          sw_vers
+          test "$(uname -m)" = arm64
+          xcodebuild -version
+          swift --version
+          python3 --version
+
+      - name: Test scene-output validation (no AI model)
+        timeout-minutes: 2
+        run: python3 -m unittest discover -s Tests -p 'test_scene_worker.py' -v
+
+      - name: Test generated videos and naming rules (no AI model)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 5
+        run: |
+          swiftc -parse-as-library \
+            Sources/EchoRename/VideoFrameSampler.swift \
+            Sources/EchoRename/SpeechNamingPolicy.swift \
+            Sources/EchoRename/TitleGenerator.swift \
+            scripts/smoke.swift \
+            -o "$RUNNER_TEMP/clipname-smoke"
+          "$RUNNER_TEMP/clipname-smoke"
+
+      - name: Build ClipName
+        if: ${{ !cancelled() }}
+        timeout-minutes: 15
+        run: swift build --product ClipName --jobs 2 --force-resolved-versions
+
+      - name: Run Swift filename unit tests
+        if: ${{ !cancelled() }}
+        timeout-minutes: 10
+        run: swift test --jobs 2 --force-resolved-versions
+
+      - name: Check dependency lockfile stayed unchanged
+        if: ${{ !cancelled() }}
+        run: git diff --exit-code -- Package.resolved
