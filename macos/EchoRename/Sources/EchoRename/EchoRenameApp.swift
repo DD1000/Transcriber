@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 @main
-struct EchoRenameApp: App {
+struct ClipNameApp: App {
     @StateObject private var viewModel = VideoRenameViewModel()
 
     init() {

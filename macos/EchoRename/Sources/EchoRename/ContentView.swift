@@ -14,7 +14,7 @@ struct ContentView: View {
             Divider()
             footer
         }
-        .alert("EchoRename", isPresented: Binding(
+        .alert("ClipName", isPresented: Binding(
             get: { model.errorMessage != nil },
             set: { if !$0 { model.errorMessage = nil } },
         )) {
@@ -42,7 +42,7 @@ struct ContentView: View {
                 .frame(width: 48, height: 48)
                 .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 13))
             VStack(alignment: .leading, spacing: 3) {
-                Text("EchoRename")
+                Text("ClipName")
                     .font(.title2.weight(.bold))
                 Text("Private video transcription and filename suggestions")
                     .foregroundStyle(.secondary)
@@ -87,7 +87,7 @@ struct ContentView: View {
             ContentUnavailableView(
                 "Choose a folder to begin",
                 systemImage: "folder.badge.questionmark",
-                description: Text("EchoRename scans your selected folder, transcribes video audio locally, and lets you approve the final names."),
+                description: Text("ClipName scans your selected folder, transcribes video audio locally, and lets you approve the final names."),
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {

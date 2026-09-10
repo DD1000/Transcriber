@@ -22,7 +22,7 @@ final class VideoRenameViewModel: ObservableObject {
     func chooseFolder() {
         let panel = NSOpenPanel()
         panel.title = "Choose a video folder"
-        panel.message = "EchoRename will only work with videos inside this folder."
+        panel.message = "ClipName will only work with videos inside this folder."
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
