@@ -16,8 +16,8 @@ let package = Package(
             dependencies: [
                 .product(name: "WhisperKit", package: "argmax-oss-swift"),
             ],
-            resources: [.copy("Resources")],
+            resources: [.copy("Resources")]
         ),
         .testTarget(name: "EchoRenameTests", dependencies: ["EchoRename"]),
-    ],
+    ]
 )

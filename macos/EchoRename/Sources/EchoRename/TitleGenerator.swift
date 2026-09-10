@@ -2,7 +2,7 @@ import Foundation
 
 enum TitleGenerator {
     private static let fillerWords: Set<String> = [
-        "a", "an", "and", "are", "at", "de", "del", "el", "en", "es", "este", "esto", "for", "hola", "i", "la", "las", "los", "me", "my", "of", "oh", "okay", "que", "the", "this", "to", "uh", "um", "un", "una", "y", "yo",
+        "a", "an", "and", "are", "at", "de", "del", "el", "en", "es", "este", "esto", "for", "hola", "i", "la", "las", "los", "me", "my", "of", "oh", "okay", "para", "que", "the", "this", "to", "uh", "um", "un", "una", "y", "yo",
     ]
 
     static func filename(from transcript: String, preservingExtension extensionName: String, fallback: String) -> String {

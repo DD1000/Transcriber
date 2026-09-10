@@ -31,7 +31,7 @@ struct ContentView: View {
         }
         .alert("ClipName", isPresented: Binding(
             get: { model.errorMessage != nil },
-            set: { if !$0 { model.errorMessage = nil } },
+            set: { if !$0 { model.errorMessage = nil } }
         )) {
             Button("OK", role: .cancel) { model.errorMessage = nil }
         } message: {
@@ -40,7 +40,7 @@ struct ContentView: View {
         .confirmationDialog(
             "Rename \(model.proposedCount) video\(model.proposedCount == 1 ? "" : "s")?",
             isPresented: $showRenameConfirmation,
-            titleVisibility: .visible,
+            titleVisibility: .visible
         ) {
             Button("Rename videos", role: .destructive) { model.renameSelected() }
             Button("Cancel", role: .cancel) {}
@@ -103,7 +103,7 @@ struct ContentView: View {
             ContentUnavailableView(
                 "Choose a folder to begin",
                 systemImage: "folder.badge.questionmark",
-                description: Text("ClipName uses speech and video scenes to suggest descriptive names. Scenery and silent clips work too. Review the names before applying them."),
+                description: Text("ClipName uses speech and video scenes to suggest descriptive names. Scenery and silent clips work too. Review the names before applying them.")
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {

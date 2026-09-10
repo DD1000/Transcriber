@@ -70,7 +70,7 @@ enum RenameExecutor {
         let batch = RenameBatch(
             id: UUID(),
             createdAt: .now,
-            steps: zip(selected, destinations).map { RenameStep(originalPath: $0.0.url.path, renamedPath: $0.1.path) },
+            steps: zip(selected, destinations).map { RenameStep(originalPath: $0.0.url.path, renamedPath: $0.1.path) }
         )
         try RenameHistoryStore.append(batch)
         return batch

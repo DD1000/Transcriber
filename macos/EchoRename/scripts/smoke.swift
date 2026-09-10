@@ -84,6 +84,11 @@ struct ClipNameSmoke {
             from: "Estamos caminando por la playa al atardecer.", preservingExtension: "mp4", fallback: "original"
         )
         try require(spanish.contains("playa") && spanish.hasSuffix(".mp4"), "Spanish title lost its subject or extension.")
+        let spanishFillers = TitleGenerator.filename(
+            from: "Preparando parapente para mañana en la montaña.",
+            preservingExtension: "MP4", fallback: "original"
+        )
+        try require(spanishFillers == "preparando-parapente-mañana-montaña.mp4", "Spanish fillers must be removed as whole words, preserving accents and subjects.")
         let unsafe = TitleGenerator.filename(
             from: "Mountain / river: evening\\walk", preservingExtension: "mp4", fallback: "original"
         )

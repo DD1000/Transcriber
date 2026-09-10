@@ -1,6 +1,9 @@
 @preconcurrency import AVFoundation
 import Foundation
-import WhisperKit
+// WhisperKit is compiled in Swift 5 mode, without Swift 6 concurrency annotations.
+// Its private instance is used only by the view model's single analysis task,
+// which awaits transcription and unloading sequentially (actors are reentrant).
+@preconcurrency import WhisperKit
 
 enum AudioExtractionError: LocalizedError {
     case noAudioTrack

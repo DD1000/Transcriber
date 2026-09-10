@@ -7,7 +7,7 @@ final class TitleGeneratorTests: XCTestCase {
         let result = TitleGenerator.filename(
             from: "Hola, hoy hablamos del presupuesto para la fiesta de cumpleaños de Maria.",
             preservingExtension: "MOV",
-            fallback: "IMG_1024",
+            fallback: "IMG_1024"
         )
 
         XCTAssertEqual(result, "hoy-hablamos-presupuesto-fiesta-cumpleaños-maria.mov")
@@ -16,6 +16,16 @@ final class TitleGeneratorTests: XCTestCase {
     func testUsesTheOriginalNameWhenNoSpeechIsAvailable() {
         let result = TitleGenerator.filename(from: "", preservingExtension: "mp4", fallback: "IMG_1024")
         XCTAssertEqual(result, "IMG_1024.mp4")
+    }
+
+    func testRemovesSpanishFillersWithoutChangingSubjectWords() {
+        let result = TitleGenerator.filename(
+            from: "Preparando parapente para mañana en la montaña.",
+            preservingExtension: "MP4",
+            fallback: "IMG_1024"
+        )
+
+        XCTAssertEqual(result, "preparando-parapente-mañana-montaña.mp4")
     }
 }
 #endif
