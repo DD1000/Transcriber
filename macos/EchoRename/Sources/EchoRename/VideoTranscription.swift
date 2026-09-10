@@ -51,6 +51,11 @@ actor LocalVideoTranscriber {
     static let highAccuracyModel = "large-v3-v20240930_626MB"
     private var whisperKit: WhisperKit?
 
+    func unload() async {
+        await whisperKit?.unloadModels()
+        whisperKit = nil
+    }
+
     func transcribe(videoAt videoURL: URL) async throws -> String {
         let audioURL = try await AudioExtractor.extractAudio(from: videoURL)
         defer { try? FileManager.default.removeItem(at: audioURL) }

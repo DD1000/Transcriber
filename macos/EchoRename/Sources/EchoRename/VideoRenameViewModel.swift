@@ -11,15 +11,20 @@ final class VideoRenameViewModel: ObservableObject {
     @Published var completedJobs = 0
     @Published var notice = "Choose a folder to begin. Videos and audio stay on your Mac."
     @Published var errorMessage: String?
+    @Published var namingMode: NamingMode = .automatic
+    @Published var analysisTotal = 0
 
     private let transcriber = LocalVideoTranscriber()
+    private let sceneNamer = LocalSceneNamer()
+    private var analysisTask: Task<Void, Never>?
     private let supportedExtensions: Set<String> = ["avi", "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "webm"]
 
     var selectedCount: Int { jobs.filter(\.isSelected).count }
     var proposedCount: Int { jobs.filter { $0.isSelected && $0.state == .proposed && $0.proposedName != $0.url.lastPathComponent }.count }
-    var progress: Double { jobs.isEmpty ? 0 : Double(completedJobs) / Double(jobs.filter(\.isSelected).count) }
+    var progress: Double { analysisTotal == 0 ? 0 : Double(completedJobs) / Double(analysisTotal) }
 
     func chooseFolder() {
+        guard !isAnalyzing && !isScanning else { return }
         let panel = NSOpenPanel()
         panel.title = "Choose a video folder"
         panel.message = "ClipName will only work with videos inside this folder."
@@ -35,6 +40,7 @@ final class VideoRenameViewModel: ObservableObject {
     }
 
     func scanFolder() {
+        guard !isAnalyzing && !isScanning else { return }
         guard let folderURL else { return }
         isScanning = true
         errorMessage = nil
@@ -53,35 +59,95 @@ final class VideoRenameViewModel: ObservableObject {
     }
 
     func analyzeSelected() {
+        guard !isAnalyzing && !isScanning else { return }
         let selectedIDs = jobs.filter(\.isSelected).map(\.id)
         guard !selectedIDs.isEmpty else { return }
         isAnalyzing = true
         completedJobs = 0
+        analysisTotal = selectedIDs.count
         errorMessage = nil
-        notice = "Loading the high-accuracy local transcription model…"
+        let mode = namingMode
+        notice = mode == .scenesOnly ? "Preparing scene analysis…" : "Preparing local transcription…"
 
-        Task {
+        analysisTask = Task {
+            var sceneIDs: [UUID] = []
+            // Finish speech first, then free its models before starting vision.
             for jobID in selectedIDs {
+                if Task.isCancelled { break }
                 guard let index = jobs.firstIndex(where: { $0.id == jobID }) else { continue }
-                jobs[index].state = .extractingAudio
-                notice = "Extracting audio from \(jobs[index].originalName)…"
+                jobs[index].transcript = ""
+                jobs[index].visualDescription = ""
+                jobs[index].namingSource = ""
+                if mode == .scenesOnly {
+                    jobs[index].state = .waitingForScenes
+                    sceneIDs.append(jobID)
+                    continue
+                }
                 do {
                     jobs[index].state = .transcribing
                     notice = "Transcribing \(jobs[index].originalName) locally…"
                     let transcript = try await transcriber.transcribe(videoAt: jobs[index].url)
+                    try Task.checkCancellation()
                     jobs[index].transcript = transcript
+                    guard SpeechNamingPolicy.hasUsefulSpeech(transcript) else {
+                        jobs[index].state = .waitingForScenes
+                        sceneIDs.append(jobID)
+                        continue
+                    }
                     let extensionName = jobs[index].url.pathExtension
                     let fallback = jobs[index].url.deletingPathExtension().lastPathComponent
                     jobs[index].proposedName = TitleGenerator.filename(from: transcript, preservingExtension: extensionName, fallback: fallback)
                     jobs[index].state = .proposed
+                    jobs[index].namingSource = "Based on speech"
                 } catch {
+                    if Task.isCancelled { break }
+                    // Videos without audio, or with unreadable audio, can still be named visually.
+                    jobs[index].state = .waitingForScenes
+                    sceneIDs.append(jobID)
+                    continue
+                }
+                completedJobs += 1
+            }
+            await transcriber.unload()
+            for jobID in sceneIDs {
+                if Task.isCancelled { break }
+                guard let index = jobs.firstIndex(where: { $0.id == jobID }) else { continue }
+                jobs[index].state = .analyzingScenes
+                notice = "Looking at scenes in \(jobs[index].originalName)…"
+                do {
+                    let scene = try await sceneNamer.describe(videoAt: jobs[index].url)
+                    try Task.checkCancellation()
+                    jobs[index].visualDescription = scene.description
+                    jobs[index].proposedName = TitleGenerator.filename(
+                        from: scene.title,
+                        preservingExtension: jobs[index].url.pathExtension,
+                        fallback: jobs[index].url.deletingPathExtension().lastPathComponent
+                    )
+                    jobs[index].namingSource = "Based on video scenes"
+                    jobs[index].state = .proposed
+                } catch {
+                    if Task.isCancelled { break }
                     jobs[index].state = .failed(error.localizedDescription)
                 }
                 completedJobs += 1
             }
+            let wasCancelled = Task.isCancelled
+            for index in jobs.indices where selectedIDs.contains(jobs[index].id) {
+                if [.waitingForScenes, .analyzingScenes, .transcribing, .extractingAudio].contains(jobs[index].state) {
+                    jobs[index].state = .ready
+                }
+            }
             isAnalyzing = false
-            notice = "Review the proposed names, edit any you want, then rename the selected videos."
+            analysisTask = nil
+            notice = wasCancelled
+                ? "Stopped. Completed suggestions are ready to review."
+                : "Analysis finished. Review the suggestions and any file errors before renaming."
         }
+    }
+
+    func cancelAnalysis() {
+        analysisTask?.cancel()
+        notice = "Stopping after the current audio operation…"
     }
 
     func renameSelected() {

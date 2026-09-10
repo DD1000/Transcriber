@@ -4,6 +4,8 @@ enum VideoJobState: Equatable {
     case ready
     case extractingAudio
     case transcribing
+    case waitingForScenes
+    case analyzingScenes
     case proposed
     case renamed
     case failed(String)
@@ -13,6 +15,8 @@ enum VideoJobState: Equatable {
         case .ready: "Ready"
         case .extractingAudio: "Extracting audio"
         case .transcribing: "Transcribing locally"
+        case .waitingForScenes: "Waiting for scene analysis"
+        case .analyzingScenes: "Analyzing video scenes locally"
         case .proposed: "Name suggested"
         case .renamed: "Renamed"
         case .failed(let message): message
@@ -24,6 +28,8 @@ enum VideoJobState: Equatable {
         case .ready: "circle"
         case .extractingAudio: "waveform"
         case .transcribing: "text.badge.star"
+        case .waitingForScenes: "photo.on.rectangle"
+        case .analyzingScenes: "eye"
         case .proposed: "checkmark.circle.fill"
         case .renamed: "arrow.triangle.2.circlepath.circle.fill"
         case .failed: "exclamationmark.triangle.fill"
@@ -37,6 +43,8 @@ struct VideoJob: Identifiable, Equatable {
     let originalName: String
     var proposedName: String
     var transcript: String = ""
+    var visualDescription: String = ""
+    var namingSource: String = ""
     var isSelected = true
     var state: VideoJobState = .ready
 

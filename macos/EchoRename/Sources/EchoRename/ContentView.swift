@@ -9,6 +9,21 @@ struct ContentView: View {
             header
             Divider()
             controlBar
+            HStack(spacing: 16) {
+                Picker("Name videos using", selection: $model.namingMode) {
+                    ForEach(NamingMode.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .frame(width: 340)
+                .disabled(model.isAnalyzing)
+                Text(model.namingMode == .automatic
+                    ? "Uses scenes when there is little or no useful speech."
+                    : "Names scenery, music clips, and silent videos from their pictures.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 12)
             Divider()
             jobList
             Divider()
@@ -44,11 +59,11 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text("ClipName")
                     .font(.title2.weight(.bold))
-                Text("Private video transcription and filename suggestions")
+                Text("Name videos from speech and scenes, privately on your Mac")
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Label("Whisper Large v3 Turbo", systemImage: "lock.fill")
+            Label("Local speech + vision", systemImage: "lock.fill")
                 .font(.subheadline.weight(.semibold))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
@@ -62,6 +77,7 @@ struct ContentView: View {
         HStack(spacing: 12) {
             Button("Choose video folder", systemImage: "folder") { model.chooseFolder() }
                 .buttonStyle(.borderedProminent)
+                .disabled(model.isAnalyzing || model.isScanning)
             if let folderURL = model.folderURL {
                 Text(folderURL.path)
                     .lineLimit(1)
@@ -87,7 +103,7 @@ struct ContentView: View {
             ContentUnavailableView(
                 "Choose a folder to begin",
                 systemImage: "folder.badge.questionmark",
-                description: Text("ClipName scans your selected folder, transcribes video audio locally, and lets you approve the final names."),
+                description: Text("ClipName uses speech and video scenes to suggest descriptive names. Scenery and silent clips work too. Review the names before applying them."),
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
@@ -95,6 +111,7 @@ struct ContentView: View {
                 Section {
                     ForEach($model.jobs) { $job in
                         VideoRow(job: $job)
+                            .disabled(model.isAnalyzing)
                     }
                 } header: {
                     HStack {
@@ -121,6 +138,9 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                 Spacer()
+                if model.isAnalyzing {
+                    Button("Stop") { model.cancelAnalysis() }
+                }
                 Button("Undo last rename", systemImage: "arrow.uturn.backward") { model.undoLastRename() }
                     .disabled(model.isAnalyzing)
                 Button("Analyze \(model.selectedCount) video\(model.selectedCount == 1 ? "" : "s")", systemImage: "sparkles") { model.analyzeSelected() }
@@ -153,6 +173,17 @@ private struct VideoRow: View {
                 Text(job.state.label)
                     .font(.caption)
                     .foregroundStyle(isFailed ? .red : .secondary)
+                if !job.namingSource.isEmpty {
+                    Text(job.namingSource).font(.caption).foregroundStyle(.secondary)
+                }
+                if !job.visualDescription.isEmpty {
+                    DisclosureGroup("View scene description") {
+                        Text(job.visualDescription)
+                            .font(.caption)
+                            .textSelection(.enabled)
+                    }
+                    .font(.caption)
+                }
                 if !job.transcript.isEmpty {
                     DisclosureGroup("View transcript") {
                         Text(job.transcript)
@@ -177,7 +208,7 @@ private struct VideoRow: View {
         switch job.state {
         case .failed: .red
         case .proposed, .renamed: .green
-        case .extractingAudio, .transcribing: .accentColor
+        case .extractingAudio, .transcribing, .waitingForScenes, .analyzingScenes: .accentColor
         case .ready: .secondary
         }
     }
