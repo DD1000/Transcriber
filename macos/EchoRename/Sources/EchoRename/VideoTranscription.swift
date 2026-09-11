@@ -74,7 +74,10 @@ actor LocalVideoTranscriber {
         guard let whisperKit else { return "" }
 
         let options = AudioInputOptions(audioLoadingMode: .incremental)
-        let results = try await whisperKit.transcribe(audioPath: audioURL.path, audioInputOptions: options)
+        // Without detectLanguage, WhisperKit prefills English even for Spanish/Chinese audio.
+        // Translation belongs to the naming stage, never to the source transcript.
+        let decoding = DecodingOptions(task: .transcribe, detectLanguage: true)
+        let results = try await whisperKit.transcribe(audioPath: audioURL.path, audioInputOptions: options, decodeOptions: decoding)
         return results.map(\.text).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

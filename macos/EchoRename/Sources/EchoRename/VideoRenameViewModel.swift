@@ -12,6 +12,9 @@ final class VideoRenameViewModel: ObservableObject {
     @Published var notice = "Choose a folder to begin. Videos and audio stay on your Mac."
     @Published var errorMessage: String?
     @Published var namingMode: NamingMode = .automatic
+    @Published var namingLanguage = NamingLanguage(rawValue: UserDefaults.standard.string(forKey: "namingLanguage") ?? "original") ?? .original {
+        didSet { UserDefaults.standard.set(namingLanguage.rawValue, forKey: "namingLanguage") }
+    }
     @Published var analysisTotal = 0
 
     private let transcriber = LocalVideoTranscriber()
@@ -21,6 +24,7 @@ final class VideoRenameViewModel: ObservableObject {
 
     var selectedCount: Int { jobs.filter(\.isSelected).count }
     var proposedCount: Int { jobs.filter { $0.isSelected && $0.state == .proposed && $0.proposedName != $0.url.lastPathComponent }.count }
+    var reusableCount: Int { jobs.filter { $0.isSelected && $0.namingEvidence != nil }.count }
     var progress: Double { analysisTotal == 0 ? 0 : Double(completedJobs) / Double(analysisTotal) }
 
     func chooseFolder() {
@@ -67,10 +71,12 @@ final class VideoRenameViewModel: ObservableObject {
         analysisTotal = selectedIDs.count
         errorMessage = nil
         let mode = namingMode
+        let language = namingLanguage
         notice = mode == .scenesOnly ? "Preparing scene analysis…" : "Preparing local transcription…"
 
         analysisTask = Task {
             var sceneIDs: [UUID] = []
+            var namingIDs: [UUID] = []
             // Finish speech first, then free its models before starting vision.
             for jobID in selectedIDs {
                 if Task.isCancelled { break }
@@ -78,6 +84,8 @@ final class VideoRenameViewModel: ObservableObject {
                 jobs[index].transcript = ""
                 jobs[index].visualDescription = ""
                 jobs[index].namingSource = ""
+                jobs[index].namingEvidence = nil
+                jobs[index].suggestedLanguage = nil
                 if mode == .scenesOnly {
                     jobs[index].state = .waitingForScenes
                     sceneIDs.append(jobID)
@@ -94,11 +102,14 @@ final class VideoRenameViewModel: ObservableObject {
                         sceneIDs.append(jobID)
                         continue
                     }
-                    let extensionName = jobs[index].url.pathExtension
-                    let fallback = jobs[index].url.deletingPathExtension().lastPathComponent
-                    jobs[index].proposedName = TitleGenerator.filename(from: transcript, preservingExtension: extensionName, fallback: fallback)
-                    jobs[index].state = .proposed
-                    jobs[index].namingSource = "Based on speech"
+                    jobs[index].namingEvidence = .speech
+                    if language == .original {
+                        suggest(transcript, at: index, evidence: .speech, language: language, legacy: true)
+                    } else {
+                        jobs[index].state = .waitingForNames
+                        namingIDs.append(jobID)
+                        continue
+                    }
                 } catch {
                     if Task.isCancelled { break }
                     // Videos without audio, or with unreadable audio, can still be named visually.
@@ -109,45 +120,101 @@ final class VideoRenameViewModel: ObservableObject {
                 completedJobs += 1
             }
             await transcriber.unload()
+            await updateSuggestions(for: namingIDs, language: language)
             for jobID in sceneIDs {
                 if Task.isCancelled { break }
                 guard let index = jobs.firstIndex(where: { $0.id == jobID }) else { continue }
                 jobs[index].state = .analyzingScenes
                 notice = "Looking at scenes in \(jobs[index].originalName)…"
                 do {
-                    let scene = try await sceneNamer.describe(videoAt: jobs[index].url)
+                    let scene = try await sceneNamer.describe(videoAt: jobs[index].url, language: language)
                     try Task.checkCancellation()
                     jobs[index].visualDescription = scene.description
-                    jobs[index].proposedName = TitleGenerator.filename(
-                        from: scene.title,
-                        preservingExtension: jobs[index].url.pathExtension,
-                        fallback: jobs[index].url.deletingPathExtension().lastPathComponent
-                    )
-                    jobs[index].namingSource = "Based on video scenes"
-                    jobs[index].state = .proposed
+                    jobs[index].namingEvidence = .scenes
+                    suggest(scene.title, at: index, evidence: .scenes, language: language, legacy: language == .original)
                 } catch {
                     if Task.isCancelled { break }
                     jobs[index].state = .failed(error.localizedDescription)
                 }
                 completedJobs += 1
             }
-            let wasCancelled = Task.isCancelled
-            for index in jobs.indices where selectedIDs.contains(jobs[index].id) {
-                if [.waitingForScenes, .analyzingScenes, .transcribing, .extractingAudio].contains(jobs[index].state) {
-                    jobs[index].state = .ready
-                }
-            }
-            isAnalyzing = false
-            analysisTask = nil
-            notice = wasCancelled
-                ? "Stopped. Completed suggestions are ready to review."
-                : "Analysis finished. Review the suggestions and any file errors before renaming."
+            finishAnalysis(selectedIDs)
         }
+    }
+
+    /// Reuses the original analysis, never a previously translated title.
+    func updateSelectedNames() {
+        guard !isAnalyzing && !isScanning else { return }
+        let ids = jobs.filter { $0.isSelected && $0.namingEvidence != nil }.map(\.id)
+        guard !ids.isEmpty else { return }
+        let previousStates = Dictionary(uniqueKeysWithValues: jobs.filter { ids.contains($0.id) }.map { ($0.id, $0.state) })
+        let language = namingLanguage
+        isAnalyzing = true
+        completedJobs = 0
+        analysisTotal = ids.count
+        errorMessage = nil
+        notice = "Updating suggestions from saved analysis. Your files are unchanged."
+        for index in jobs.indices where ids.contains(jobs[index].id) {
+            jobs[index].state = .waitingForNames
+        }
+        analysisTask = Task {
+            await updateSuggestions(for: ids, language: language)
+            finishAnalysis(ids, restoring: previousStates)
+        }
+    }
+
+    private func updateSuggestions(for ids: [UUID], language: NamingLanguage) async {
+        for id in ids {
+            if Task.isCancelled { break }
+            guard let index = jobs.firstIndex(where: { $0.id == id }),
+                  let evidence = jobs[index].namingEvidence else { continue }
+            jobs[index].state = .naming
+            notice = "Writing a name for \(jobs[index].originalName)…"
+            do {
+                let source = evidence == .speech ? jobs[index].transcript : jobs[index].visualDescription
+                if language == .original && evidence == .speech {
+                    suggest(source, at: index, evidence: evidence, language: language, legacy: true)
+                } else {
+                    let title = try await sceneNamer.localizedTitle(from: source, evidence: evidence, language: language)
+                    try Task.checkCancellation()
+                    suggest(title, at: index, evidence: evidence, language: language)
+                }
+            } catch {
+                if Task.isCancelled { break }
+                // Keep the previous name and original analysis available for a retry.
+                jobs[index].state = .failed(error.localizedDescription)
+            }
+            completedJobs += 1
+        }
+    }
+
+    private func suggest(_ title: String, at index: Int, evidence: NamingEvidence, language: NamingLanguage, legacy: Bool = false) {
+        let extensionName = jobs[index].url.pathExtension
+        let fallback = jobs[index].url.deletingPathExtension().lastPathComponent
+        jobs[index].proposedName = legacy
+            ? TitleGenerator.filename(from: title, preservingExtension: extensionName, fallback: fallback)
+            : TitleGenerator.localizedFilename(from: title, preservingExtension: extensionName, fallback: fallback)
+        jobs[index].namingSource = evidence == .speech ? "Based on speech" : "Based on video scenes"
+        jobs[index].suggestedLanguage = language
+        jobs[index].state = .proposed
+    }
+
+    private func finishAnalysis(_ ids: [UUID], restoring previousStates: [UUID: VideoJobState] = [:]) {
+        for index in jobs.indices where ids.contains(jobs[index].id) {
+            if [.waitingForScenes, .analyzingScenes, .transcribing, .extractingAudio, .waitingForNames, .naming].contains(jobs[index].state) {
+                jobs[index].state = previousStates[jobs[index].id] ?? .ready
+            }
+        }
+        isAnalyzing = false
+        analysisTask = nil
+        notice = Task.isCancelled
+            ? "Stopped. Completed suggestions are ready to review. Your files are unchanged."
+            : "Suggestions ready. Review names and any errors, then choose Rename to apply them."
     }
 
     func cancelAnalysis() {
         analysisTask?.cancel()
-        notice = "Stopping after the current audio operation…"
+        notice = "Stopping the current operation…"
     }
 
     func renameSelected() {

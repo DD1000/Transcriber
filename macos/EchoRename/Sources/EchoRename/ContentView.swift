@@ -24,6 +24,25 @@ struct ContentView: View {
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 12)
+            HStack(spacing: 16) {
+                Picker("Filename language", selection: $model.namingLanguage) {
+                    ForEach(NamingLanguage.allCases) { Text($0.label).tag($0) }
+                }
+                .frame(width: 340)
+                .disabled(model.isAnalyzing)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(model.namingLanguage.guidance)
+                    Text("Change language, then Update names to reuse this session’s analysis. Review AI wording before renaming.")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                Spacer()
+                Button("Update names", systemImage: "character.bubble") { model.updateSelectedNames() }
+                    .disabled(model.reusableCount == 0 || model.isAnalyzing || model.isScanning)
+                    .help("Regenerate selected suggestions without transcribing or changing your files.")
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 12)
             Divider()
             jobList
             Divider()
@@ -174,7 +193,8 @@ private struct VideoRow: View {
                     .font(.caption)
                     .foregroundStyle(isFailed ? .red : .secondary)
                 if !job.namingSource.isEmpty {
-                    Text(job.namingSource).font(.caption).foregroundStyle(.secondary)
+                    Text(job.namingSource + (job.suggestedLanguage.map { " · " + $0.label } ?? ""))
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 if !job.visualDescription.isEmpty {
                     DisclosureGroup("View scene description") {
@@ -185,7 +205,7 @@ private struct VideoRow: View {
                     .font(.caption)
                 }
                 if !job.transcript.isEmpty {
-                    DisclosureGroup("View transcript") {
+                    DisclosureGroup("View original transcript") {
                         Text(job.transcript)
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -208,7 +228,7 @@ private struct VideoRow: View {
         switch job.state {
         case .failed: .red
         case .proposed, .renamed: .green
-        case .extractingAudio, .transcribing, .waitingForScenes, .analyzingScenes: .accentColor
+        case .extractingAudio, .transcribing, .waitingForScenes, .analyzingScenes, .waitingForNames, .naming: .accentColor
         case .ready: .secondary
         }
     }

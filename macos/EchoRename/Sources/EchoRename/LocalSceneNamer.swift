@@ -13,9 +13,9 @@ enum SceneNamingError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .setupRequired: "Scene analysis needs its local model setup. Run ClipName’s setup-vision script, then try again."
+        case .setupRequired: "Localized names and scene analysis need the local language model. Run ClipName’s setup-vision script, then try again."
         case .failed(let message): message
-        case .timedOut: "Scene analysis took too long. Try again with fewer apps open."
+        case .timedOut: "Local naming took too long. Try again with fewer apps open."
         }
     }
 }
@@ -32,7 +32,7 @@ actor LocalSceneNamer {
             .appendingPathComponent("ClipName/Vision", isDirectory: true)
     }
 
-    func describe(videoAt videoURL: URL) async throws -> SceneDescription {
+    private func runtime() throws -> (python: URL, model: URL, worker: URL) {
         let python = Self.supportDirectory.appendingPathComponent("runtime/bin/python")
         let model = Self.supportDirectory.appendingPathComponent("model")
         guard FileManager.default.isExecutableFile(atPath: python.path),
@@ -40,9 +40,38 @@ actor LocalSceneNamer {
               let worker = Self.workerURL else {
             throw SceneNamingError.setupRequired
         }
+        return (python, model, worker)
+    }
+
+    func describe(videoAt videoURL: URL, language: NamingLanguage = .original) async throws -> SceneDescription {
+        let runtime = try runtime()
         let frames = try await VideoFrameSampler.sample(videoAt: videoURL, temporaryDirectory: temporaryDirectory)
         defer { try? FileManager.default.removeItem(at: frames.directory) }
-        return try await run(python: python, worker: worker, model: model, frames: frames)
+        let data = try await run(python: runtime.python, worker: runtime.worker, model: runtime.model,
+                                 directory: frames.directory, arguments: ["--language", language.workerCode, "--images"] + frames.images.map(\.path))
+        guard let result = try? JSONDecoder().decode(SceneDescription.self, from: data), !result.title.isEmpty else {
+            throw SceneNamingError.failed("No clear scene description was found. The original filename has been kept.")
+        }
+        return result
+    }
+
+    func localizedTitle(from text: String, evidence: NamingEvidence, language: NamingLanguage) async throws -> String {
+        let runtime = try runtime()
+        let directory = (temporaryDirectory ?? FileManager.default.temporaryDirectory)
+            .appendingPathComponent("clipname-name-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let input = directory.appendingPathComponent("source.txt")
+        // The original transcript remains in the view model; this private copy is always removed.
+        try text.write(to: input, atomically: true, encoding: .utf8)
+        let data = try await run(python: runtime.python, worker: runtime.worker, model: runtime.model,
+                                 directory: directory, arguments: ["--text-file", input.path, "--source-kind", evidence.rawValue,
+                                                                   "--language", language.workerCode])
+        struct Title: Decodable { let title: String }
+        guard let result = try? JSONDecoder().decode(Title.self, from: data), !result.title.isEmpty else {
+            throw SceneNamingError.failed("A clear localized name could not be generated. The previous name has been kept.")
+        }
+        return result.title
     }
 
     private static var workerURL: URL? {
@@ -53,16 +82,16 @@ actor LocalSceneNamer {
         return Bundle.module.url(forResource: "scene_namer", withExtension: "py", subdirectory: "Resources")
     }
 
-    private func run(python: URL, worker: URL, model: URL, frames: SampledVideoFrames) async throws -> SceneDescription {
-        let output = frames.directory.appendingPathComponent("result.json")
-        let log = frames.directory.appendingPathComponent("worker.log")
+    private func run(python: URL, worker: URL, model: URL, directory: URL, arguments: [String]) async throws -> Data {
+        let output = directory.appendingPathComponent("result.json")
+        let log = directory.appendingPathComponent("worker.log")
         FileManager.default.createFile(atPath: log.path, contents: nil)
         let logHandle = try FileHandle(forWritingTo: log)
         defer { try? logHandle.close() }
         let process = Process()
         process.executableURL = python
         process.arguments = [worker.path, "--parent-pid", String(ProcessInfo.processInfo.processIdentifier),
-                             "--model", model.path, "--output", output.path, "--images"] + frames.images.map(\.path)
+                             "--model", model.path, "--output", output.path] + arguments
         process.standardOutput = logHandle
         process.standardError = logHandle
         process.standardInput = FileHandle.nullDevice
@@ -99,17 +128,15 @@ actor LocalSceneNamer {
         }
         try Task.checkCancellation()
         guard let data = try? Data(contentsOf: output) else {
-            throw SceneNamingError.failed("Scene analysis could not finish. The local model may need to be reinstalled.")
+            throw SceneNamingError.failed("Local naming could not finish. The local model may need to be reinstalled.")
         }
         if let failure = try? JSONDecoder().decode(WorkerFailure.self, from: data) {
             throw SceneNamingError.failed(failure.error)
         }
-        guard process.terminationStatus == 0,
-              let result = try? JSONDecoder().decode(SceneDescription.self, from: data),
-              !result.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw SceneNamingError.failed("No clear scene description was found. The original filename has been kept.")
+        guard process.terminationStatus == 0 else {
+            throw SceneNamingError.failed("Local naming could not finish. The previous filename has been kept.")
         }
-        return result
+        return data
     }
 
     private struct WorkerFailure: Decodable { let error: String }

@@ -8,7 +8,17 @@ ClipName proposes descriptive video filenames from local speech transcription an
 - **Scenes only** skips transcription for scenery, music videos, or clips whose speech doesn't describe their contents.
 - Every visual suggestion is marked **Based on video scenes**, with an expandable scene description. Unreadable or unclear videos keep their names and show an explanation.
 
-Four small frames are sampled across each video (one for clips shorter than a second). Scene descriptions can miss brief events or make mistakes; they are editable suggestions. English scene names are used; English and Spanish speech remain supported. Stop preserves completed suggestions. Stopping during speech waits for the current audio operation; scene workers are terminated promptly.
+Four small frames are sampled across each video (one for clips shorter than a second). Scene descriptions can miss brief events or make mistakes; they are editable suggestions. Stop preserves completed suggestions. Stopping during speech waits for the current audio operation; scene and naming workers are terminated promptly.
+
+## Filename languages
+
+Choose **Filename language** before analyzing: **Automatic · no translation**, **English**, **Español · Latin America**, or **简体中文 · Mainland China**. Automatic preserves the original speech language with the existing fast naming rules; automatic scene names use English. Whisper explicitly detects the spoken language and transcribes it instead of defaulting to English. The expandable original transcript is never replaced with the localized name.
+
+After analysis, switch language and click **Update names** to regenerate the selected suggestions from that session’s original transcript or scene description. It does not transcribe the audio again and does not change any files. Review or edit suggestions, then click **Rename** to apply them. Existing duplicate numbering and Undo still apply. Analysis is kept only for the current session; closing the app or scanning again clears it.
+
+Localized names use the same free, offline Qwen model as scene analysis, including a text-only path for transcripts. No additional model or paid service is needed if scene setup is already installed. Spanish uses neutral Latin American vocabulary, accents, and complete phrases; Chinese uses Simplified characters and everyday Mainland wording. Prompts favor natural meaning over literal translation and forbid invented cultural details or forced slang. A bounded editing pass improves Spanish grammar and retries Chinese titles containing untranslated English. This is AI-assisted wording, not a native-speaker quality guarantee. Chinese titles that still contain English letters are rejected, which can also reject foreign brand names; retry or edit an automatic suggestion instead.
+
+Translated titles preserve spaces, accents and Chinese characters. Filename separators, control characters, duplicate extensions and excessive byte lengths are handled before renaming. Unclear speech falls back to scenes; a failed localization keeps the prior filename/suggestion and cannot be applied until a new suggestion succeeds. Long transcripts use bounded beginning, middle and ending excerpts, so brief topics can be missed. This feature is shared by the native Mac builds; it does not change the older EchoScribe web app or establish compatibility on additional Mac hardware.
 
 ## Local setup
 

@@ -103,6 +103,17 @@ struct ClipNameSmoke {
         try require(!unsafe.contains("/") && !unsafe.contains(":") && !unsafe.contains("\\"), "A title contains path separators.")
         let empty = TitleGenerator.filename(from: "", preservingExtension: "MOV", fallback: "original-video")
         try require(empty == "original-video.mov", "Empty descriptions should preserve the fallback filename.")
+        let localized = TitleGenerator.localizedFilename(from: "../Un cumpleaños: en / la montaña.MP4", preservingExtension: "mp4", fallback: "original")
+        try require(localized == "Un cumpleaños en la montaña.mp4", "Localized names must retain Spanish grammar and accents without unsafe separators.")
+        let chinese = TitleGenerator.localizedFilename(from: "海边的午后", preservingExtension: "MOV", fallback: "original")
+        try require(chinese == "海边的午后.mov", "Chinese characters must survive filename creation.")
+        let longName = TitleGenerator.localizedFilename(from: String(repeating: "山间的风景", count: 30), preservingExtension: "mp4", fallback: "original")
+        try require(longName.utf8.count <= 180 && longName.hasSuffix(".mp4"), "Localized names must fit the byte limit and preserve the extension.")
+        let automaticChinese = TitleGenerator.filename(from: String(repeating: "今天我们一起去海边看日落", count: 30), preservingExtension: "mp4", fallback: "original")
+        try require(automaticChinese.utf8.count <= 180 && automaticChinese.hasSuffix(".mp4"), "Automatic unspaced Chinese names must use the same byte safety limit.")
+        try require(SpeechNamingPolicy.hasUsefulSpeech("今天我们一起去海边看日落，远处有几艘小船。"), "Chinese speech should not require word spaces.")
+        try require(!SpeechNamingPolicy.hasUsefulSpeech("感谢观看，记得点赞订阅。"), "Boilerplate Chinese speech should fall back to scenes.")
+        print("PASS: localized Spanish/Chinese filenames, byte limits and Chinese speech detection")
     }
 
     private static func checkFrames(at video: URL, portrait: Bool) async throws {
