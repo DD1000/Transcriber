@@ -21,6 +21,12 @@ enum SceneNamingError: LocalizedError {
 }
 
 actor LocalSceneNamer {
+    private let temporaryDirectory: URL?
+
+    init(temporaryDirectory: URL? = nil) {
+        self.temporaryDirectory = temporaryDirectory
+    }
+
     static var supportDirectory: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("ClipName/Vision", isDirectory: true)
@@ -34,7 +40,7 @@ actor LocalSceneNamer {
               let worker = Self.workerURL else {
             throw SceneNamingError.setupRequired
         }
-        let frames = try await VideoFrameSampler.sample(videoAt: videoURL)
+        let frames = try await VideoFrameSampler.sample(videoAt: videoURL, temporaryDirectory: temporaryDirectory)
         defer { try? FileManager.default.removeItem(at: frames.directory) }
         return try await run(python: python, worker: worker, model: model, frames: frames)
     }

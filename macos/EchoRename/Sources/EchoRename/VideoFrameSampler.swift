@@ -31,9 +31,9 @@ enum VideoFrameSamplingError: LocalizedError {
 
 enum VideoFrameSampler {
     /// The caller owns the returned directory and must remove it after analysis.
-    static func sample(videoAt videoURL: URL) async throws -> SampledVideoFrames {
+    static func sample(videoAt videoURL: URL, temporaryDirectory: URL? = nil) async throws -> SampledVideoFrames {
         try Task.checkCancellation()
-        let directory = FileManager.default.temporaryDirectory
+        let directory = (temporaryDirectory ?? FileManager.default.temporaryDirectory)
             .appendingPathComponent("clipname-frames-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(
             at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700]

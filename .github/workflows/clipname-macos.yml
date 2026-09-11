@@ -70,9 +70,9 @@ jobs:
           swift --version
           python3 --version
 
-      - name: Test scene-output validation (no AI model)
+      - name: Test scene-output and benchmark validation (no AI model)
         timeout-minutes: 2
-        run: python3 -m unittest discover -s Tests -p 'test_scene_worker.py' -v
+        run: python3 -m unittest discover -s Tests -p 'test_*.py' -v
 
       - name: Test generated videos and naming rules (no AI model)
         if: ${{ !cancelled() }}

@@ -1,0 +1,168 @@
+name: ClipName real AI on free M1 runners
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  models:
+    # Standard runners are free for public repositories. Never select paid labels.
+    if: ${{ github.event.repository.private == false }}
+    name: AI tests (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            xcode: '16.2'
+          - runner: macos-15
+            xcode: '16.4'
+          - runner: macos-26
+            xcode: '26.6'
+          # Toolchain preview on macOS 26, not a macOS 27 or different-chip test.
+          - runner: xcode-27
+            xcode: '27.0'
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_${{ matrix.xcode }}.app/Contents/Developer
+      CLIPNAME_RUNNER_LABEL: ${{ matrix.runner }}
+      PYTHONDONTWRITEBYTECODE: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      HF_HUB_DISABLE_XET: '1'
+      TOKENIZERS_PARALLELISM: 'false'
+    defaults:
+      run:
+        shell: bash
+        working-directory: macos/EchoRename
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+          architecture: arm64
+      - name: Record actual runner environment
+        run: python3 scripts/ci-model-benchmark.py init --output "$RUNNER_TEMP/clipname-public-results"
+      - name: Native Metal capability probe
+        id: metal
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          swiftc scripts/metal-probe.swift -o "$RUNNER_TEMP/clipname-metal-probe"
+          "$RUNNER_TEMP/clipname-metal-probe" "$RUNNER_TEMP/clipname-public-results/metal-probe.json"
+      - name: Build current app
+        id: build
+        continue-on-error: true
+        timeout-minutes: 15
+        run: swift build --product ClipName --jobs 2 --force-resolved-versions
+      - name: Unit and generated-video checks
+        id: checks
+        continue-on-error: true
+        timeout-minutes: 8
+        run: |
+          python3 -m unittest discover -s Tests -p 'test_*.py' -v
+          swift test --jobs 2 --force-resolved-versions
+          swiftc -parse-as-library Sources/EchoRename/VideoFrameSampler.swift Sources/EchoRename/SpeechNamingPolicy.swift Sources/EchoRename/TitleGenerator.swift scripts/smoke.swift -o "$RUNNER_TEMP/clipname-smoke"
+          "$RUNNER_TEMP/clipname-smoke"
+      - name: Install public-fixture generators
+        id: fixture_tools
+        continue-on-error: true
+        timeout-minutes: 6
+        run: |
+          command -v ffmpeg || brew install ffmpeg
+          command -v espeak-ng || brew install espeak-ng
+      - name: Generate public English, Spanish and silent scene clips
+        id: fixtures
+        if: ${{ steps.fixture_tools.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 4
+        run: python3 scripts/ci-model-benchmark.py fixtures --output "$RUNNER_TEMP/clipname-public-results" --media "$RUNNER_TEMP/clipname-public-media"
+      - name: Real Whisper inference and no-audio control
+        id: speech
+        if: ${{ steps.build.outcome == 'success' && steps.fixtures.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 22
+        run: python3 scripts/ci-model-benchmark.py speech --output "$RUNNER_TEMP/clipname-public-results" --media "$RUNNER_TEMP/clipname-public-media"
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        id: uv
+        continue-on-error: true
+        with:
+          enable-cache: false
+      - name: Install pinned vision runtime without models
+        id: vision_runtime
+        if: ${{ steps.uv.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 6
+        run: |
+          mkdir -p "$HOME/Library/Application Support/ClipName/Vision"
+          uv venv --python 3.12 "$HOME/Library/Application Support/ClipName/Vision/runtime"
+          uv pip install --python "$HOME/Library/Application Support/ClipName/Vision/runtime/bin/python" -r scripts/vision-requirements.txt
+      - name: Execute a real MLX GPU operation
+        id: mlx
+        if: ${{ steps.vision_runtime.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 3
+        run: '"$HOME/Library/Application Support/ClipName/Vision/runtime/bin/python" scripts/ci-model-benchmark.py probe --output "$RUNNER_TEMP/clipname-public-results"'
+      - name: Download pinned public scene model
+        id: vision_model
+        if: ${{ steps.mlx.outputs.available == 'true' }}
+        continue-on-error: true
+        timeout-minutes: 10
+        run: '"$HOME/Library/Application Support/ClipName/Vision/runtime/bin/python" Sources/EchoRename/Resources/scene_namer.py --model "$HOME/Library/Application Support/ClipName/Vision/model" --download'
+      - name: Real Qwen scene inference
+        id: vision
+        if: ${{ steps.build.outcome == 'success' && steps.fixtures.outcome == 'success' && steps.vision_model.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 6
+        run: python3 scripts/ci-model-benchmark.py vision --output "$RUNNER_TEMP/clipname-public-results" --media "$RUNNER_TEMP/clipname-public-media"
+      - name: Record results including failed or unavailable stages
+        if: ${{ always() }}
+        env:
+          CLIPNAME_STAGE_METAL: ${{ steps.metal.outcome }}
+          CLIPNAME_STAGE_BUILD: ${{ steps.build.outcome }}
+          CLIPNAME_STAGE_CHECKS: ${{ steps.checks.outcome }}
+          CLIPNAME_STAGE_FIXTURE_TOOLS: ${{ steps.fixture_tools.outcome }}
+          CLIPNAME_STAGE_FIXTURES: ${{ steps.fixtures.outcome }}
+          CLIPNAME_STAGE_SPEECH: ${{ steps.speech.outcome }}
+          CLIPNAME_STAGE_VISION_RUNTIME: ${{ steps.vision_runtime.outcome }}
+          CLIPNAME_STAGE_UV: ${{ steps.uv.outcome }}
+          CLIPNAME_STAGE_MLX: ${{ steps.mlx.outcome }}
+          CLIPNAME_STAGE_VISION_MODEL: ${{ steps.vision_model.outcome }}
+          CLIPNAME_STAGE_VISION: ${{ steps.vision.outcome }}
+        run: python3 scripts/ci-model-benchmark.py summary --output "$RUNNER_TEMP/clipname-public-results"
+      - name: Upload only public test reports and logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: public-model-results-${{ matrix.runner }}
+          path: |
+            ${{ runner.temp }}/clipname-public-results/*.json
+            ${{ runner.temp }}/clipname-public-results/*.log
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Fail on real test failures; unavailable GPU remains explicit
+        if: ${{ always() }}
+        env:
+          BUILD: ${{ steps.build.outcome }}
+          METAL: ${{ steps.metal.outcome }}
+          CHECKS: ${{ steps.checks.outcome }}
+          FIXTURES: ${{ steps.fixtures.outcome }}
+          SPEECH: ${{ steps.speech.outcome }}
+          VISION: ${{ steps.vision.outcome }}
+          VISION_RUNTIME: ${{ steps.vision_runtime.outcome }}
+          MLX: ${{ steps.mlx.outcome }}
+          VISION_MODEL: ${{ steps.vision_model.outcome }}
+        run: |
+          test "$METAL" = success
+          test "$BUILD" = success
+          test "$CHECKS" = success
+          test "$FIXTURES" = success
+          test "$SPEECH" = success
+          test "$VISION_RUNTIME" = success
+          test "$MLX" = success
+          test "$VISION_MODEL" != failure
+          test "$VISION" != failure

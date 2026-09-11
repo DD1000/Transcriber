@@ -34,6 +34,14 @@ struct ClipNameSmoke {
         try await checkFrames(at: landscape, portrait: false)
         print("PASS: silent video yields four readable, downscaled JPEG frames")
 
+        let isolated = try await VideoFrameSampler.sample(videoAt: landscape, temporaryDirectory: directory)
+        try require(
+            isolated.directory.deletingLastPathComponent().standardizedFileURL == directory.standardizedFileURL,
+            "Benchmark frames must stay in their caller-owned temporary directory."
+        )
+        try FileManager.default.removeItem(at: isolated.directory)
+        print("PASS: benchmark frames stay in their isolated cleanup directory")
+
         let portrait = directory.appendingPathComponent("rotated-colors.mp4")
         try await makeVideo(at: portrait, rotated: true)
         try await checkFrames(at: portrait, portrait: true)

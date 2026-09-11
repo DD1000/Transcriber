@@ -20,7 +20,7 @@ enum AudioExtractionError: LocalizedError {
 }
 
 enum AudioExtractor {
-    static func extractAudio(from videoURL: URL) async throws -> URL {
+    static func extractAudio(from videoURL: URL, temporaryDirectory: URL? = nil) async throws -> URL {
         let asset = AVURLAsset(url: videoURL)
         let tracks = try await asset.loadTracks(withMediaType: .audio)
         guard !tracks.isEmpty else { throw AudioExtractionError.noAudioTrack }
@@ -28,7 +28,7 @@ enum AudioExtractor {
             throw AudioExtractionError.couldNotCreateExporter
         }
 
-        let outputURL = FileManager.default.temporaryDirectory
+        let outputURL = (temporaryDirectory ?? FileManager.default.temporaryDirectory)
             .appendingPathComponent("echorename-\(UUID().uuidString)")
             .appendingPathExtension("m4a")
         exporter.outputURL = outputURL
@@ -53,6 +53,11 @@ enum AudioExtractor {
 actor LocalVideoTranscriber {
     static let highAccuracyModel = "large-v3-v20240930_626MB"
     private var whisperKit: WhisperKit?
+    private let temporaryDirectory: URL?
+
+    init(temporaryDirectory: URL? = nil) {
+        self.temporaryDirectory = temporaryDirectory
+    }
 
     func unload() async {
         await whisperKit?.unloadModels()
@@ -60,7 +65,7 @@ actor LocalVideoTranscriber {
     }
 
     func transcribe(videoAt videoURL: URL) async throws -> String {
-        let audioURL = try await AudioExtractor.extractAudio(from: videoURL)
+        let audioURL = try await AudioExtractor.extractAudio(from: videoURL, temporaryDirectory: temporaryDirectory)
         defer { try? FileManager.default.removeItem(at: audioURL) }
 
         if whisperKit == nil {

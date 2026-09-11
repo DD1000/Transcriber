@@ -30,12 +30,54 @@ The directory and Swift module still use the legacy name `EchoRename`; the app p
 
 ```sh
 swift build --product ClipName
-python3 -m unittest discover -s Tests -p 'test_scene_worker.py'
+python3 -m unittest discover -s Tests -p 'test_*.py'
 swiftc -parse-as-library Sources/EchoRename/VideoFrameSampler.swift Sources/EchoRename/SpeechNamingPolicy.swift Sources/EchoRename/TitleGenerator.swift scripts/smoke.swift -o /tmp/clipname-smoke
 /tmp/clipname-smoke
 ```
 
 The native smoke harness creates its own tiny test videos. It never renames user files.
+
+## Private test-video suite and model reports
+
+Use a repeatable local set of your own videos without publishing them:
+
+```sh
+python3 scripts/benchmark.py import '/absolute/path/to/test videos'
+swift build --product ClipName --jobs 2 --force-resolved-versions
+python3 scripts/benchmark.py run
+```
+
+Import makes byte-for-byte copies under `.private-tests/user-videos/videos`, with a
+SHA-256 manifest. It never moves or renames the source videos. Existing suites are
+not overwritten; use `--suite another-name` on both commands to create another set.
+The entire `.private-tests` directory is ignored by Git, including media, manifests,
+transcripts, raw process logs and results. Do not force-add it or upload it as a CI
+artifact. Personal recordings and their contents need explicit permission before
+sharing. CI's normal tests use only synthetic bytes/videos, not this private suite.
+
+Each `run` creates a new private `runs/<timestamp-id>/` folder with `report.md`,
+`results.json`, and each model's individual result and log. It evaluates the app's
+current Whisper speech model and Qwen scene model independently on **every** clip,
+even when automatic mode would use speech alone. Reports include transcripts,
+parsed scene descriptions, suggested filenames, automatic-mode choice, model IDs,
+checkout's declared vision revision, dependency lock, source and executable hashes, Mac chip/macOS/RAM,
+duration and errors. Suggestions are before duplicate numbering; no rename operation
+is executed. There are no accuracy scores until reference transcripts/scene labels
+are supplied and reviewed. The optional manifest expectation fields are reserved
+for that review; the runner does not grade them automatically.
+
+Models run one at a time in isolated native processes. Timings include startup,
+media extraction, model loading and inference, so they are not warm-app throughput
+measurements. Each process has a ten-minute limit (`--timeout` changes it); timeouts
+and crashes are recorded and testing continues. Each result is saved as it completes;
+Ctrl-C stops the active model group and retains the partial report. A fresh app build
+is required after source changes. Headless evaluation is explicitly selected with
+`ClipName --benchmark`; normal app launches still open the standard Mac interface.
+
+The test runner itself doesn't upload media. WhisperKit can download model metadata
+or missing weights; scene inference uses the already-installed offline vision setup.
+Use `--engines speech` or `--engines vision` for a single-engine run. Full comparison
+defaults to both. These local runs test the current Mac, not every supported Mac.
 
 ## Automated GitHub checks
 
@@ -54,3 +96,37 @@ installed on your Mac or deployed to the website by this workflow.
 GitHub has scheduled its macOS 14 runners for retirement on November 2, 2026.
 If that runner becomes unavailable, Sonoma testing will need another test machine;
 an unavailable runner is not evidence that ClipName itself is incompatible.
+
+## Public real-model tests on GitHub
+
+The manually dispatched **ClipName real AI on free M1 runners** workflow exercises
+the production speech and scene engines on the free public-repository labels
+`macos-14`, `macos-15`, `macos-26`, and `xcode-27`. The last is a toolchain-preview
+configuration on macOS 26, not another chip generation or macOS 27. All four are
+M1-based virtual machines; these are not tests of M2/M3/M4 hardware or the app UI.
+The workflow refuses private repositories and does not request paid runner labels.
+
+Only public/generated fixtures are used: a credited NASA Blue Marble image, two
+original English/Spanish sentences synthesized using eSpeak NG standard formant
+voices, and a silent scene clip. Source, usage terms and SHA-256 hashes are recorded
+with every run. The personal `.private-tests` suite is never accessed or uploaded.
+Tests only propose filenames; they never rename videos.
+
+Each runner records its actual OS, toolchain, memory, dependency lock and source
+commit. It builds ClipName, runs normal checks, probes Metal and MLX with real GPU
+arithmetic, then attempts Whisper English/Spanish inference plus the no-audio
+negative control. Qwen scene inference runs only after a working MLX GPU probe and
+model setup. Model downloads are allowed; no audio/video is sent to an inference API.
+Only public result JSON and process logs are uploaded, not media, model caches or
+temporary frames. Artifacts expire after 30 days.
+
+The report distinguishes completed model inference, expected no-audio handling,
+failed tests, missing prerequisites, and a verified unavailable GPU. A green workflow
+with an unavailable GPU does **not** establish that scene inference passed. Each
+native model process has a ten-minute limit; step limits and a larger job budget
+leave time for partial reporting. Timings include process startup, media preparation,
+loading and inference, plus downloads only when triggered inside that process. Vision
+is pre-downloaded and later speech tests may reuse weights; these are not chip-speed
+comparisons. Normalized word error rates apply only to these
+two synthetic sentences, not general Spanish or English accuracy. Scene descriptions
+are recorded for human review, not automatically declared correct.

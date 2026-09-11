@@ -42,3 +42,7 @@ yarn-error.log*
 /macos/EchoRename/.swiftpm/configuration/
 /macos/EchoRename/.swiftpm/security/
 /macos/EchoRename/.swiftpm/xcode/
+
+# Private video fixtures, transcripts, and benchmark logs never belong in Git.
+/macos/EchoRename/.private-tests/
+__pycache__/
