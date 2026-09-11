@@ -23,7 +23,7 @@ jobs:
             xcode: '16.4'
           - runner: macos-26
             xcode: '26.6'
-          # Toolchain preview on macOS 26, not a macOS 27 or different-chip test.
+          # Dedicated preview image; record its actual OS instead of assuming it.
           - runner: xcode-27
             xcode: '27.0'
     env:

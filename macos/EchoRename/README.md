@@ -101,8 +101,8 @@ an unavailable runner is not evidence that ClipName itself is incompatible.
 
 The manually dispatched **ClipName real AI on free M1 runners** workflow exercises
 the production speech and scene engines on the free public-repository labels
-`macos-14`, `macos-15`, `macos-26`, and `xcode-27`. The last is a toolchain-preview
-configuration on macOS 26, not another chip generation or macOS 27. All four are
+`macos-14`, `macos-15`, `macos-26`, and `xcode-27`. The last is a dedicated preview
+configuration; its actual macOS version is recorded for each run. All four are
 M1-based virtual machines; these are not tests of M2/M3/M4 hardware or the app UI.
 The workflow refuses private repositories and does not request paid runner labels.
 
